@@ -98,6 +98,12 @@ func main() {
 		log.Fatalf("index.gmd not found in %s. Please create it.", srcDir)
 	}
 
+	// Check for /web/assets directory
+	webAssetsPath := filepath.Join(srcDir, "assets")
+	if fi, err := os.Stat(webAssetsPath); err == nil && fi.IsDir() {
+		log.Fatalf("Error: Do not create an 'assets' directory inside %s. Use the top-level 'assets' directory instead.", srcDir)
+	}
+
 	cfg := loadConfig()
 
 	err := compileGMDs()
@@ -114,6 +120,9 @@ func main() {
 		cleanup()
 		os.Exit(0)
 	}()
+
+	// Serve /assets/* from ./assets/
+	http.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("assets"))))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path

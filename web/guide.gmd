@@ -11,7 +11,7 @@ This app compiles `.gmd` (Markdown) files from the `web` directory into HTML and
    ```
    go run main.go
    ```
-4. **Access your compiled HTML files** at `http://localhost:<port>/filename.html`.
+4. **Access your compiled HTML files** at `http://localhost:<port>/filename`.
 
 When you stop the server, the compiled `.built` directory is automatically cleaned up.
 
@@ -57,7 +57,7 @@ When you stop the server, the compiled `.built` directory is automatically clean
 ### Images
 
 ```
-![Alt text](image-url.jpg)
+![Alt text](/assets/example.jpg)
 ```
 
 ### Code
@@ -76,6 +76,18 @@ code block
 ```
 > This is a quote.
 ```
+
+---
+
+## Fastlink Syntax (GMD Custom)
+
+You can quickly link to another `.gmd` page using:
+
+```
+(abc)[Go to ABC page]
+```
+
+This will create a link to `/abc` (the compiled version of `abc.gmd`).
 
 ---
 

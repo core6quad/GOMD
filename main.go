@@ -39,6 +39,7 @@ func loadConfig() Config {
 }
 
 func preprocessGMD(input []byte) []byte {
+	// GMD syntax preprocessing:
 	// Replace (abc)[clickme] with [clickme](/abc)
 	re := regexp.MustCompile(`\(([^)\s]+)\)\[([^\]]+)\]`)
 	return re.ReplaceAllFunc(input, func(match []byte) []byte {

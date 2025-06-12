@@ -19,6 +19,9 @@ sure, make a new branch and you are free to contribute, then if your changes are
 ## todo list:
 
 [] - Analytics
+
 [] - Logic elements
+
 [] - TLS
+
 and more...

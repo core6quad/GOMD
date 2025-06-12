@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -37,6 +38,18 @@ func loadConfig() Config {
 	return cfg
 }
 
+func preprocessGMD(input []byte) []byte {
+	// Replace (abc)[clickme] with [clickme](/abc)
+	re := regexp.MustCompile(`\(([^)\s]+)\)\[([^\]]+)\]`)
+	return re.ReplaceAllFunc(input, func(match []byte) []byte {
+		submatches := re.FindSubmatch(match)
+		if len(submatches) == 3 {
+			return []byte("[" + string(submatches[2]) + "](/" + string(submatches[1]) + ")")
+		}
+		return match
+	})
+}
+
 func compileGMDs() error {
 	err := os.MkdirAll(buildDir, 0755)
 	if err != nil {
@@ -54,6 +67,7 @@ func compileGMDs() error {
 			if err != nil {
 				return err
 			}
+			input = preprocessGMD(input)
 			html := blackfriday.Run(input)
 			rel, err := filepath.Rel(srcDir, path)
 			if err != nil {
@@ -78,6 +92,12 @@ func cleanup() {
 }
 
 func main() {
+	// Check for index.gmd
+	indexPath := filepath.Join(srcDir, "index.gmd")
+	if _, err := os.Stat(indexPath); err != nil {
+		log.Fatalf("index.gmd not found in %s. Please create it.", srcDir)
+	}
+
 	cfg := loadConfig()
 
 	err := compileGMDs()
@@ -98,7 +118,7 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/" {
-			path = "/guide"
+			path = "/index"
 		}
 		htmlPath := filepath.Join(buildDir, path) + ".html"
 		if _, err := os.Stat(htmlPath); err == nil {

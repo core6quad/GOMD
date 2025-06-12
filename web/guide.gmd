@@ -1,0 +1,82 @@
+# GOMD Server Guide
+
+Welcome to the GOMD server!  
+This app compiles `.gmd` (Markdown) files from the `web` directory into HTML and serves them.
+
+## How to Use
+
+1. **Place your `.gmd` files in the `web` directory.**
+2. **Configure the server port** in `config.json` (default is 8080).
+3. **Run the server:**
+   ```
+   go run main.go
+   ```
+4. **Access your compiled HTML files** at `http://localhost:<port>/filename.html`.
+
+When you stop the server, the compiled `.built` directory is automatically cleaned up.
+
+---
+
+## Markdown Syntax Guide
+
+### Headings
+
+```
+# Heading 1
+## Heading 2
+### Heading 3
+```
+
+### Emphasis
+
+```
+*italic* or _italic_
+**bold** or __bold__
+```
+
+### Lists
+
+**Unordered:**
+```
+- Item 1
+- Item 2
+```
+
+**Ordered:**
+```
+1. First
+2. Second
+```
+
+### Links
+
+```
+[Link text](https://example.com)
+```
+
+### Images
+
+```
+![Alt text](image-url.jpg)
+```
+
+### Code
+
+Inline: `` `code` ``
+
+Block:
+```
+```
+code block
+```
+```
+
+### Blockquotes
+
+```
+> This is a quote.
+```
+
+---
+
+For more Markdown features, see [Markdown Guide](https://www.markdownguide.org/basic-syntax/).

@@ -95,7 +95,19 @@ func main() {
 		os.Exit(0)
 	}()
 
-	http.Handle("/", http.FileServer(http.Dir(buildDir)))
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/" {
+			path = "/guide"
+		}
+		htmlPath := filepath.Join(buildDir, path) + ".html"
+		if _, err := os.Stat(htmlPath); err == nil {
+			http.ServeFile(w, r, htmlPath)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
 	log.Printf("Serving on http://localhost:%s\n", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
 }

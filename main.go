@@ -12,6 +12,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -31,12 +33,16 @@ type Config struct {
 }
 
 type Analytics struct {
-	TotalViews int
-	PageViews  map[string]int
+	TotalViews     int
+	PageViews      map[string]int
+	BrowserEngines map[string]int
+	Countries      map[string]int
 }
 
 var analytics = &Analytics{
-	PageViews: make(map[string]int),
+	PageViews:      make(map[string]int),
+	BrowserEngines: make(map[string]int),
+	Countries:      make(map[string]int),
 }
 
 // Track last view time per IP+page to avoid counting rapid reloads as new views
@@ -161,13 +167,19 @@ func main() {
 
 	// Analytics endpoint
 	http.HandleFunc("/analytics", func(w http.ResponseWriter, r *http.Request) {
-		user, pass, ok := r.BasicAuth()
-		if !ok || user != cfg.AnalyticsUser || pass != cfg.AnalyticsPass {
-			w.Header().Set("WWW-Authenticate", `Basic realm="analytics"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		// Serve a styled HTML analytics dashboard with a chart
+		// Get memory stats
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		memMB := float64(m.Alloc) / 1024.0 / 1024.0
+		// Get CPU count
+		cpuCount := runtime.NumCPU()
+
+		// Prepare browser engine data for chart
+		engineLabels, engineCounts := browserEngineChartData()
+		// Prepare country data for chart
+		countryLabels, countryCounts := countryChartData()
+
+		// Serve a styled HTML analytics dashboard with charts and server stats
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(`
 <!DOCTYPE html>
@@ -177,47 +189,137 @@ func main() {
 	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 	<style>
 		body { font-family: sans-serif; background: #181c20; color: #eee; margin: 0; padding: 0; }
-		.container { max-width: 700px; margin: 40px auto; background: #23272b; border-radius: 10px; padding: 32px; box-shadow: 0 2px 16px #0004; }
+		.container { max-width: 1200px; margin: 40px auto; background: #23272b; border-radius: 10px; padding: 32px; box-shadow: 0 2px 16px #0004; }
 		h1 { text-align: center; }
 		.stats { margin: 24px 0; font-size: 1.2em; }
-		canvas { background: #fff; border-radius: 8px; }
+		canvas { background: #fff; border-radius: 8px; margin-bottom: 32px; }
 		.footer { text-align: center; margin-top: 32px; color: #888; font-size: 0.9em; }
+		.charts { display: flex; flex-wrap: nowrap; gap: 24px; justify-content: center; }
+		.chart-block { flex: 1 1 0; min-width: 0; }
+		@media (max-width: 1000px) {
+			.charts { flex-wrap: wrap; }
+			.chart-block { min-width: 320px; }
+		}
 	</style>
 </head>
 <body>
 	<div class="container">
 		<h1>GOMD Analytics</h1>
 		<div class="stats">
-			<b>Total Views:</b> ` + itoa(analytics.TotalViews) + `
+			<b>Total Views:</b> ` + itoa(analytics.TotalViews) + `<br>
+			<b>CPU Cores:</b> ` + itoa(cpuCount) + `<br>
+			<b>Memory Usage:</b> ` + formatFloat(memMB) + ` MB
 		</div>
-		<canvas id="viewsChart" width="600" height="320"></canvas>
+		<div class="charts">
+			<div class="chart-block">
+				<canvas id="viewsChart" width="400" height="250"></canvas>
+			</div>
+			<div class="chart-block">
+				<canvas id="browserChart" width="400" height="250"></canvas>
+			</div>
+			<div class="chart-block">
+				<canvas id="countryChart" width="400" height="250"></canvas>
+			</div>
+		</div>
 		<div class="footer">GOMD Analytics &mdash; Live stats</div>
 	</div>
 	<script>
-			const ctx = document.getElementById('viewsChart').getContext('2d');
-			const data = {
-				labels: ` + pageLabelsJSON() + `,
-				datasets: [{
-					label: 'Page Views',
-					data: ` + pageViewsJSON() + `,
-					backgroundColor: 'rgba(54, 162, 235, 0.5)',
-					borderColor: 'rgba(54, 162, 235, 1)',
-					borderWidth: 2
-				}]
-			};
-			new Chart(ctx, {
-				type: 'bar',
-				data: data,
-				options: {
-					scales: {
-						y: { beginAtZero: true }
-					}
-				}
-			});
+		const viewsCtx = document.getElementById('viewsChart').getContext('2d');
+		const viewsData = {
+			labels: ` + pageLabelsJSON() + `,
+			datasets: [{
+				label: 'Page Views',
+				data: ` + pageViewsJSON() + `,
+				backgroundColor: 'rgba(54, 162, 235, 0.5)',
+				borderColor: 'rgba(54, 162, 235, 1)',
+				borderWidth: 2
+			}]
+		};
+		new Chart(viewsCtx, {
+			type: 'bar',
+			data: viewsData,
+			options: {
+				scales: { y: { beginAtZero: true } },
+				responsive: true,
+				maintainAspectRatio: false
+			}
+		});
+
+		const browserCtx = document.getElementById('browserChart').getContext('2d');
+		const browserData = {
+			labels: ` + engineLabels + `,
+			datasets: [{
+				label: 'Browser Engines',
+				data: ` + engineCounts + `,
+				backgroundColor: [
+					'rgba(255, 99, 132, 0.5)',
+					'rgba(255, 205, 86, 0.5)',
+					'rgba(75, 192, 192, 0.5)',
+					'rgba(54, 162, 235, 0.5)',
+					'rgba(153, 102, 255, 0.5)'
+				],
+				borderColor: [
+					'rgba(255, 99, 132, 1)',
+					'rgba(255, 205, 86, 1)',
+					'rgba(75, 192, 192, 1)',
+					'rgba(54, 162, 235, 1)',
+					'rgba(153, 102, 255, 1)'
+				],
+				borderWidth: 2
+			}]
+		};
+		new Chart(browserCtx, {
+			type: 'pie',
+			data: browserData,
+			options: {
+				plugins: {
+					legend: { position: 'bottom' }
+				},
+				responsive: true,
+				maintainAspectRatio: false
+			}
+		});
+
+		const countryCtx = document.getElementById('countryChart').getContext('2d');
+		const countryData = {
+			labels: ` + countryLabels + `,
+			datasets: [{
+				label: 'Countries',
+				data: ` + countryCounts + `,
+				backgroundColor: [
+					'rgba(255, 99, 132, 0.5)',
+					'rgba(255, 205, 86, 0.5)',
+					'rgba(75, 192, 192, 0.5)',
+					'rgba(54, 162, 235, 0.5)',
+					'rgba(153, 102, 255, 0.5)',
+					'rgba(201, 203, 207, 0.5)'
+				],
+				borderColor: [
+					'rgba(255, 99, 132, 1)',
+					'rgba(255, 205, 86, 1)',
+					'rgba(75, 192, 192, 1)',
+					'rgba(54, 162, 235, 1)',
+					'rgba(153, 102, 255, 1)',
+					'rgba(201, 203, 207, 1)'
+				],
+				borderWidth: 2
+			}]
+		};
+		new Chart(countryCtx, {
+			type: 'doughnut',
+			data: countryData,
+			options: {
+				plugins: {
+					legend: { position: 'bottom' }
+				},
+				responsive: true,
+				maintainAspectRatio: false
+			}
+		});
 	</script>
 </body>
 </html>
-		`))
+	`))
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -234,6 +336,12 @@ func main() {
 			if t, ok := lastView[key]; !ok || now.Sub(t) > viewCooldown {
 				analytics.TotalViews++
 				analytics.PageViews[path]++
+				// Browser engine detection
+				engine := detectBrowserEngine(r.UserAgent())
+				analytics.BrowserEngines[engine]++
+				// Country detection
+				country := lookupCountry(ip)
+				analytics.Countries[country]++
 				lastView[key] = now
 			}
 			http.ServeFile(w, r, htmlPath)
@@ -246,9 +354,14 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
 }
 
-// Helper to convert int to string (no strconv import needed for this small use)
+// Helper to convert int to string
 func itoa(i int) string {
 	return fmt.Sprintf("%d", i)
+}
+
+// Helper to format float with 1 decimal
+func formatFloat(f float64) string {
+	return fmt.Sprintf("%.1f", f)
 }
 
 // Helper to generate JSON arrays for chart labels and data
@@ -257,14 +370,118 @@ func pageLabelsJSON() string {
 	for k := range analytics.PageViews {
 		labels = append(labels, k)
 	}
+	sort.Strings(labels)
 	b, _ := json.Marshal(labels)
 	return string(b)
 }
 func pageViewsJSON() string {
+	labels := []string{}
+	for k := range analytics.PageViews {
+		labels = append(labels, k)
+	}
+	sort.Strings(labels)
 	views := []int{}
-	for _, k := range analytics.PageViews {
-		views = append(views, k)
+	for _, k := range labels {
+		views = append(views, analytics.PageViews[k])
 	}
 	b, _ := json.Marshal(views)
 	return string(b)
+}
+
+// Browser engine detection (very basic)
+func detectBrowserEngine(ua string) string {
+	ua = strings.ToLower(ua)
+	switch {
+	case strings.Contains(ua, "webkit") && strings.Contains(ua, "chrome"):
+		return "Blink"
+	case strings.Contains(ua, "webkit"):
+		return "WebKit"
+	case strings.Contains(ua, "gecko") && strings.Contains(ua, "firefox"):
+		return "Gecko"
+	case strings.Contains(ua, "trident") || strings.Contains(ua, "msie"):
+		return "Trident"
+	default:
+		return "Other"
+	}
+}
+
+// For browser engine chart
+func browserEngineChartData() (string, string) {
+	type kv struct {
+		Key   string
+		Value int
+	}
+	var sorted []kv
+	for k, v := range analytics.BrowserEngines {
+		sorted = append(sorted, kv{k, v})
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Key < sorted[j].Key })
+	labels := []string{}
+	counts := []int{}
+	for _, kv := range sorted {
+		labels = append(labels, kv.Key)
+		counts = append(counts, kv.Value)
+	}
+	lb, _ := json.Marshal(labels)
+	cb, _ := json.Marshal(counts)
+	return string(lb), string(cb)
+}
+
+// Country lookup cache to avoid repeated API calls
+var countryCache = make(map[string]string)
+
+func lookupCountry(ip string) string {
+	if ip == "" {
+		return "Unknown"
+	}
+	if c, ok := countryCache[ip]; ok {
+		if c == "" {
+			return "Unknown"
+		}
+		return c
+	}
+	// Use ip-api.com for free IP geolocation
+	resp, err := http.Get("http://ip-api.com/json/" + ip + "?fields=countryCode")
+	if err != nil {
+		countryCache[ip] = "Unknown"
+		return "Unknown"
+	}
+	defer resp.Body.Close()
+	body, _ := ioutil.ReadAll(resp.Body)
+	var result struct {
+		CountryCode string `json:"countryCode"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil || result.CountryCode == "" {
+		countryCache[ip] = "Unknown"
+		return "Unknown"
+	}
+	countryCache[ip] = result.CountryCode
+	return result.CountryCode
+}
+
+// For country chart
+func countryChartData() (string, string) {
+	type kv struct {
+		Key   string
+		Value int
+	}
+	var sorted []kv
+	// Always include "Unknown" if present
+	for k, v := range analytics.Countries {
+		if k == "" {
+			sorted = append(sorted, kv{"Unknown", v})
+		} else {
+			sorted = append(sorted, kv{k, v})
+		}
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Key < sorted[j].Key })
+	labels := []string{}
+	counts := []int{}
+	for _, kv := range sorted {
+		labels = append(labels, kv.Key)
+		counts = append(counts, kv.Value)
+	}
+	lb, _ := json.Marshal(labels)
+	cb, _ := json.Marshal(counts)
+	return string(lb), string(cb)
 }

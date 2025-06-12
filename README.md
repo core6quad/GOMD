@@ -5,4 +5,4 @@
 GOMD's job is simple, build your .gmd (glorified .md)'s into a working webpage(s)
 
 ## how to install and use?
-Go to Releases and download the latest release, then launch main
+Go to Releases and download the latest release, then launch and go to (127.0.0.1:8080)[localhost]

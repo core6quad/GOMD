@@ -124,6 +124,15 @@ func main() {
 	// Serve /assets/* from ./assets/
 	http.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("assets"))))
 
+	// Serve /favicon.ico from ./favicon.ico if present
+	http.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := os.Stat("favicon.ico"); err == nil {
+			http.ServeFile(w, r, "favicon.ico")
+			return
+		}
+		http.NotFound(w, r)
+	})
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/" {

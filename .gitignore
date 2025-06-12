@@ -1,3 +1,4 @@
 .built
 .build
 /assets/*
+.DS_store

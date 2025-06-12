@@ -1,5 +1,8 @@
 # GOMD
 A markdown builder and host built using Golang.
 
+![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/core6quad/GOMD)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/m/core6quad/GOMD)
+
 (guide)[Guide]
 [github repo](https://github.com/core6quad/GOMD)

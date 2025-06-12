@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io/fs"
 	"io/ioutil"
 	"log"
@@ -18,6 +19,23 @@ const (
 	srcDir   = "./web"
 	buildDir = "./.built"
 )
+
+type Config struct {
+	Port string `json:"port"`
+}
+
+func loadConfig() Config {
+	f, err := os.Open("config.json")
+	if err != nil {
+		return Config{Port: "8080"}
+	}
+	defer f.Close()
+	var cfg Config
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil || cfg.Port == "" {
+		return Config{Port: "8080"}
+	}
+	return cfg
+}
 
 func compileGMDs() error {
 	err := os.MkdirAll(buildDir, 0755)
@@ -60,6 +78,8 @@ func cleanup() {
 }
 
 func main() {
+	cfg := loadConfig()
+
 	err := compileGMDs()
 	if err != nil {
 		log.Fatalf("Compile error: %v", err)
@@ -76,6 +96,6 @@ func main() {
 	}()
 
 	http.Handle("/", http.FileServer(http.Dir(buildDir)))
-	log.Println("Serving on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Printf("Serving on http://localhost:%s\n", cfg.Port)
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
 }

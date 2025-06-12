@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -30,6 +31,7 @@ type Config struct {
 	Port          string `json:"port"`
 	AnalyticsUser string `json:"analytics_user"`
 	AnalyticsPass string `json:"analytics_pass"`
+	ResetDB       bool   `json:"resetdb"`
 }
 
 type Analytics struct {
@@ -117,6 +119,31 @@ func cleanup() {
 	os.RemoveAll(buildDir)
 }
 
+const analyticsDBFile = ".analytics.db"
+
+func saveAnalytics() {
+	// Ensure the file exists or create it if not
+	f, err := os.OpenFile(analyticsDBFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Printf("Failed to open analytics db file: %v", err)
+		return
+	}
+	defer f.Close()
+	data, _ := json.MarshalIndent(analytics, "", "  ")
+	_, err = f.Write(data)
+	if err != nil {
+		log.Printf("Failed to write analytics db file: %v", err)
+	}
+}
+
+func loadAnalytics() {
+	data, err := os.ReadFile(analyticsDBFile)
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(data, analytics)
+}
+
 func main() {
 	// Check for index.gmd
 	indexPath := filepath.Join(srcDir, "index.gmd")
@@ -138,11 +165,42 @@ func main() {
 
 	cfg := loadConfig()
 
+	// Reset DB if requested
+	if cfg.ResetDB {
+		os.Remove(analyticsDBFile)
+		// Set resetdb to false in config.json
+		cfg.ResetDB = false
+		b, _ := json.MarshalIndent(cfg, "", "  ")
+		_ = os.WriteFile("config.json", b, 0644)
+	}
+
+	loadAnalytics()
+
+	// Save analytics periodically in the background
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				saveAnalytics()
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	defer func() {
+		close(done)
+		saveAnalytics()
+		cleanup()
+	}()
+
 	err := compileGMDs()
 	if err != nil {
 		log.Fatalf("Compile error: %v", err)
 	}
-	defer cleanup()
 
 	// Handle Ctrl+C and SIGTERM for cleanup
 	c := make(chan os.Signal, 1)
@@ -241,7 +299,13 @@ func main() {
 			options: {
 				scales: { y: { beginAtZero: true } },
 				responsive: true,
-				maintainAspectRatio: false
+				maintainAspectRatio: false,
+				plugins: {
+					title: {
+						display: true,
+						text: 'Most Viewed Pages'
+					}
+				}
 			}
 		});
 
@@ -273,7 +337,11 @@ func main() {
 			data: browserData,
 			options: {
 				plugins: {
-					legend: { position: 'bottom' }
+					legend: { position: 'bottom' },
+					title: {
+						display: true,
+						text: 'Most Popular Browser Engines'
+					}
 				},
 				responsive: true,
 				maintainAspectRatio: false
@@ -310,7 +378,11 @@ func main() {
 			data: countryData,
 			options: {
 				plugins: {
-					legend: { position: 'bottom' }
+					legend: { position: 'bottom' },
+					title: {
+						display: true,
+						text: 'Visitor Countries'
+					}
 				},
 				responsive: true,
 				maintainAspectRatio: false
@@ -428,13 +500,19 @@ func browserEngineChartData() (string, string) {
 }
 
 // Country lookup cache to avoid repeated API calls
-var countryCache = make(map[string]string)
+var (
+	countryCache   = make(map[string]string)
+	countryCacheMu sync.RWMutex
+)
 
 func lookupCountry(ip string) string {
 	if ip == "" {
 		return "Unknown"
 	}
-	if c, ok := countryCache[ip]; ok {
+	countryCacheMu.RLock()
+	c, ok := countryCache[ip]
+	countryCacheMu.RUnlock()
+	if ok {
 		if c == "" {
 			return "Unknown"
 		}
@@ -443,7 +521,9 @@ func lookupCountry(ip string) string {
 	// Use ip-api.com for free IP geolocation
 	resp, err := http.Get("http://ip-api.com/json/" + ip + "?fields=countryCode")
 	if err != nil {
+		countryCacheMu.Lock()
 		countryCache[ip] = "Unknown"
+		countryCacheMu.Unlock()
 		return "Unknown"
 	}
 	defer resp.Body.Close()
@@ -452,10 +532,14 @@ func lookupCountry(ip string) string {
 		CountryCode string `json:"countryCode"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil || result.CountryCode == "" {
+		countryCacheMu.Lock()
 		countryCache[ip] = "Unknown"
+		countryCacheMu.Unlock()
 		return "Unknown"
 	}
+	countryCacheMu.Lock()
 	countryCache[ip] = result.CountryCode
+	countryCacheMu.Unlock()
 	return result.CountryCode
 }
 

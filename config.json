@@ -1,5 +1,6 @@
 {
   "port": "8080",
   "analytics_user": "admin",
-  "analytics_pass": "password"
+  "analytics_pass": "password",
+  "resetdb": false
 }

@@ -1,0 +1,13 @@
+{
+  "TotalViews": 9,
+  "PageViews": {
+    "/guide": 4,
+    "/index": 5
+  },
+  "BrowserEngines": {
+    "Blink": 9
+  },
+  "Countries": {
+    "Unknown": 9
+  }
+}

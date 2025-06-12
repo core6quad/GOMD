@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/russross/blackfriday/v2"
 )
@@ -22,8 +25,24 @@ const (
 )
 
 type Config struct {
-	Port string `json:"port"`
+	Port          string `json:"port"`
+	AnalyticsUser string `json:"analytics_user"`
+	AnalyticsPass string `json:"analytics_pass"`
 }
+
+type Analytics struct {
+	TotalViews int
+	PageViews  map[string]int
+}
+
+var analytics = &Analytics{
+	PageViews: make(map[string]int),
+}
+
+// Track last view time per IP+page to avoid counting rapid reloads as new views
+var lastView = make(map[string]time.Time)
+
+const viewCooldown = 10 * time.Second // Only count a view per IP+page every 10s
 
 func loadConfig() Config {
 	f, err := os.Open("config.json")
@@ -105,6 +124,12 @@ func main() {
 		log.Fatalf("Error: Do not create an 'assets' directory inside %s. Use the top-level 'assets' directory instead.", srcDir)
 	}
 
+	// Check for /web/analytics directory
+	webAnalyticsPath := filepath.Join(srcDir, "analytics")
+	if fi, err := os.Stat(webAnalyticsPath); err == nil && fi.IsDir() {
+		log.Fatalf("Error: Do not create an 'analytics' directory inside %s.", srcDir)
+	}
+
 	cfg := loadConfig()
 
 	err := compileGMDs()
@@ -134,6 +159,67 @@ func main() {
 		http.NotFound(w, r)
 	})
 
+	// Analytics endpoint
+	http.HandleFunc("/analytics", func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != cfg.AnalyticsUser || pass != cfg.AnalyticsPass {
+			w.Header().Set("WWW-Authenticate", `Basic realm="analytics"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// Serve a styled HTML analytics dashboard with a chart
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`
+<!DOCTYPE html>
+<html>
+<head>
+	<title>GOMD Analytics</title>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+	<style>
+		body { font-family: sans-serif; background: #181c20; color: #eee; margin: 0; padding: 0; }
+		.container { max-width: 700px; margin: 40px auto; background: #23272b; border-radius: 10px; padding: 32px; box-shadow: 0 2px 16px #0004; }
+		h1 { text-align: center; }
+		.stats { margin: 24px 0; font-size: 1.2em; }
+		canvas { background: #fff; border-radius: 8px; }
+		.footer { text-align: center; margin-top: 32px; color: #888; font-size: 0.9em; }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<h1>GOMD Analytics</h1>
+		<div class="stats">
+			<b>Total Views:</b> ` + itoa(analytics.TotalViews) + `
+		</div>
+		<canvas id="viewsChart" width="600" height="320"></canvas>
+		<div class="footer">GOMD Analytics &mdash; Live stats</div>
+	</div>
+	<script>
+			const ctx = document.getElementById('viewsChart').getContext('2d');
+			const data = {
+				labels: ` + pageLabelsJSON() + `,
+				datasets: [{
+					label: 'Page Views',
+					data: ` + pageViewsJSON() + `,
+					backgroundColor: 'rgba(54, 162, 235, 0.5)',
+					borderColor: 'rgba(54, 162, 235, 1)',
+					borderWidth: 2
+				}]
+			};
+			new Chart(ctx, {
+				type: 'bar',
+				data: data,
+				options: {
+					scales: {
+						y: { beginAtZero: true }
+					}
+				}
+			});
+	</script>
+</body>
+</html>
+		`))
+	})
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/" {
@@ -141,6 +227,15 @@ func main() {
 		}
 		htmlPath := filepath.Join(buildDir, path) + ".html"
 		if _, err := os.Stat(htmlPath); err == nil {
+			// Analytics: count views with cooldown per IP+page
+			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+			key := ip + "|" + path
+			now := time.Now()
+			if t, ok := lastView[key]; !ok || now.Sub(t) > viewCooldown {
+				analytics.TotalViews++
+				analytics.PageViews[path]++
+				lastView[key] = now
+			}
 			http.ServeFile(w, r, htmlPath)
 			return
 		}
@@ -149,4 +244,27 @@ func main() {
 
 	log.Printf("Serving on http://localhost:%s\n", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
+}
+
+// Helper to convert int to string (no strconv import needed for this small use)
+func itoa(i int) string {
+	return fmt.Sprintf("%d", i)
+}
+
+// Helper to generate JSON arrays for chart labels and data
+func pageLabelsJSON() string {
+	labels := []string{}
+	for k := range analytics.PageViews {
+		labels = append(labels, k)
+	}
+	b, _ := json.Marshal(labels)
+	return string(b)
+}
+func pageViewsJSON() string {
+	views := []int{}
+	for _, k := range analytics.PageViews {
+		views = append(views, k)
+	}
+	b, _ := json.Marshal(views)
+	return string(b)
 }

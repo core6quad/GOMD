@@ -2,3 +2,4 @@
 .build
 /assets/*
 .DS_store
+.analytics.db

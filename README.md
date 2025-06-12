@@ -15,3 +15,10 @@ Go to Releases and download the latest release, then launch and go to [127.0.0.1
 sure, make a new branch and you are free to contribute, then if your changes are good enough they will be merged with the main branch
 
 ## <img width="764" alt="Снимок экрана 2025-06-12 в 13 19 43" src="https://github.com/user-attachments/assets/9cdcb259-8837-46a4-a013-a18aa991ee8b" />
+
+## todo list:
+
+[] - Analytics
+[] - Logic elements
+[] - TLS
+and more...

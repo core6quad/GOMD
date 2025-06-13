@@ -6,6 +6,9 @@
 ![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/core6quad/GOMD)
 ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/core6quad/GOMD)
 
+![Static Badge](https://img.shields.io/badge/Progress-30%25-blue)
+
+
 GOMD's job is simple, build your .gmd (glorified .md)'s into a working webpage(s)
 
 ## how to install and use?
